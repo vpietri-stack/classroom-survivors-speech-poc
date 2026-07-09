@@ -69,8 +69,8 @@ Edit `LEVELS` in `scorer.js`:
 5: { wordEdits: 0, minAccuracy: 1.00, allowPhonetic: false, exact: true  }, // advanced
 ```
 
-`allowPhonetic` uses a small English phonizer so L1-Chinese confusions
-(l↔r, v↔w, th↔s) still pass at low levels but not high ones.
+`allowPhonetic` uses a fuzzy single-word matcher (character-distance based) so
+L1-Chinese confusions (l↔r, v↔w, th↔t) still pass at low levels but not high ones.
 
 ## Known limitations (be honest about these)
 

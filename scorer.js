@@ -10,11 +10,11 @@
 (function (global) {
   'use strict';
 
-  // --- per-level tolerance ------------------------------------------------
-  // wordFuzzy : allow fuzzy (phonetic) single-word matching at this level
-  // wordEdits : max Levenshtein edits allowed on the whole token sequence
-  // minAccuracy: hard floor on accuracy % before any phonetic leniency
-  // exact     : if true, requires exact (case/punct-insensitive) match
+  // --- per-level tolerance -------------------------------------------------
+  //  wordEdits   : max token-level edits allowed on the whole utterance
+  //  minAccuracy : char-similarity floor before any phonetic leniency
+  //  allowPhonetic: permit fuzzy single-word matches (L1 accent tolerance)
+  //  exact       : if true, requires exact (case/punct-insensitive) match
   const LEVELS = {
     1: { label: 'Level 1 (beginner)',      wordEdits: 3, minAccuracy: 0.50, allowPhonetic: true,  exact: false },
     2: { label: 'Level 2 (elementary)',    wordEdits: 2, minAccuracy: 0.65, allowPhonetic: true,  exact: false },
@@ -29,34 +29,6 @@
       .replace(/[.,!?;:'"()\-]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-  }
-
-  // Minimal Double-Metaphone-ish English phonizer (educational, not exhaustive).
-  // Good enough to treat common L1-Chinese confusions as "close":
-  //   l/r, v/w, th/s, f/v, s/sh, etc.
-  function metaphone(word) {
-    word = (word || '').toLowerCase().replace(/[^a-z]/g, '');
-    if (!word) return '';
-    // collapse repeated letters
-    word = word.replace(/(.)\1+/g, '$1');
-    // common substitutes
-    word = word
-      .replace(/ph/g, 'f')
-      .replace(/([^l])r(?![aeiou])/g, '$1l')   // final/ambient r -> l
-      .replace(/^r/, 'l')                        // initial r -> l (L1-CN)
-      .replace(/w/g, 'v')                        // w -> v
-      .replace(/v/g, 'f')                        // v -> f
-      .replace(/th/g, 's')                       // think -> sink
-      .replace(/sh/g, 's')
-      .replace(/ch/g, 'c')
-      .replace(/[aeiou]+/g, '');                 // drop vowels
-    return word;
-  }
-
-  function phoneticMatch(a, b) {
-    if (!a || !b) return false;
-    if (a === b) return true;
-    return metaphone(a) === metaphone(b);
   }
 
   function levenshtein(a, b) {
@@ -74,17 +46,32 @@
     return dp[m][n];
   }
 
-  function accuracyOf(targetTokens, gotTokens) {
-    // token-level edit distance as a fraction of target length
-    const d = levenshtein(targetTokens.join(' '), gotTokens.join(' '));
-    const denom = Math.max(targetTokens.length, gotTokens.length, 1);
+  // Char-level similarity of the two (normalized) utterances.
+  // One formula handles BOTH single words and whole sentences.
+  function accuracyOf(tgt, got) {
+    if (!tgt && !got) return 1;
+    if (!tgt || !got) return 0;
+    const d = levenshtein(tgt, got);
+    const denom = Math.max(tgt.length, got.length, 1);
     return Math.max(0, 1 - d / denom);
   }
 
+  // Fuzzy single-word matcher. Captures L1-Chinese confusions naturally via
+  // character distance, e.g. light~right (1/5), very~wery (1/5),
+  // three~tree (1/5), teacher~teacha (2/7) — while rejecting apple~banana.
+  const WORD_FUZZY = 1 / 3; // up to 1/3 of chars may differ
+  function phoneticMatch(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const d = levenshtein(a, b);
+    const denom = Math.max(a.length, b.length, 1);
+    return d / denom <= WORD_FUZZY;
+  }
+
   /**
-   * @param {string} target  e.g. "the weather is nice"
+   * @param {string} target      e.g. "the weather is nice today"
    * @param {string} transcript  what the STT heard
-   * @param {number} level  1..5
+   * @param {number} level       1..5
    */
   function score(target, transcript, level) {
     const cfg = LEVELS[level] || LEVELS[3];
@@ -98,46 +85,48 @@
       return { pass, accuracy: pass ? 1 : 0, details: pass ? 'exact match' : 'exact match required', cfg };
     }
 
-    // 1) exact normalized match -> instant pass
+    // exact normalized match -> instant pass
     if (tgt && tgt === got) {
       return { pass: true, accuracy: 1, details: 'exact match', cfg };
     }
 
-    const accuracy = accuracyOf(tTok, gTok);
+    const accuracy = accuracyOf(tgt, got);
 
-    // 2) word-level phonetic leniency (for single words or per-word)
+    // word-level phonetic leniency (ALTERNATIVE path): a target word is
+    // "phonetically covered" if ANY recognized token is a fuzzy match.
+    // Evaluated even when edit-distance accuracy is low, so heavily accented
+    // but phonetically-close single words still pass at low levels.
     let phoneticHits = 0;
     if (cfg.allowPhonetic && tTok.length && gTok.length) {
-      // align by index for short items; good enough for words/sentences practice
-      for (let i = 0; i < tTok.length; i++) {
-        const tw = tTok[i];
-        // look for a phonetic match anywhere in the recognized tokens
+      for (const tw of tTok) {
         if (gTok.some(gw => phoneticMatch(tw, gw))) phoneticHits++;
       }
     }
     const phoneticRatio = tTok.length ? phoneticHits / tTok.length : 0;
 
-    // 3) decide
+    // decide — accuracy path OR phonetic path (whichever passes)
     const edits = levenshtein(tTok.join(' '), gTok.join(' '));
     let pass = false, details = '';
-    if (accuracy >= cfg.minAccuracy) {
-      // meet the accuracy floor
-      if (edits <= cfg.wordEdits) {
-        pass = true;
-        details = `accuracy ${(accuracy * 100).toFixed(0)}% (≤${cfg.wordEdits} edits allowed)`;
-      } else {
-        details = `accuracy OK (${(accuracy * 100).toFixed(0)}%) but ${edits} edits > allowed ${cfg.wordEdits}`;
-      }
-    } else if (cfg.allowPhonetic && phoneticRatio >= 0.8) {
-      // heavily accented but phonetically close -> lenient pass for low levels
+
+    const accuracyOk = accuracy >= cfg.minAccuracy && edits <= cfg.wordEdits;
+    const phoneticOk = cfg.allowPhonetic && phoneticRatio >= 0.8;
+
+    if (accuracyOk) {
+      pass = true;
+      details = `accuracy ${(accuracy * 100).toFixed(0)}% (≤${cfg.wordEdits} edits allowed)`;
+    } else if (phoneticOk) {
       pass = true;
       details = `phonetic match ${(phoneticRatio * 100).toFixed(0)}% (accent tolerant)`;
     } else {
-      details = `accuracy ${(accuracy * 100).toFixed(0)}% < required ${(cfg.minAccuracy * 100).toFixed(0)}%`;
+      const reasons = [];
+      if (accuracy < cfg.minAccuracy) reasons.push(`accuracy ${(accuracy * 100).toFixed(0)}% < ${(cfg.minAccuracy * 100).toFixed(0)}%`);
+      if (edits > cfg.wordEdits) reasons.push(`${edits} edits > ${cfg.wordEdits}`);
+      if (cfg.allowPhonetic && phoneticRatio < 0.8) reasons.push(`phonetic ${(phoneticRatio * 100).toFixed(0)}% < 80%`);
+      details = reasons.join('; ');
     }
 
     return { pass, accuracy, details, phoneticRatio, edits, cfg };
   }
 
-  global.Scorer = { score, LEVELS, normalize, metaphone, phoneticMatch };
+  global.Scorer = { score, LEVELS, normalize, phoneticMatch, levenshtein };
 })(window);
