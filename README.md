@@ -55,10 +55,12 @@ gh repo create classroom-survivors-speech-poc --public --source=. --push
 Enable Pages: **Repo → Settings → Pages → Source: Deploy from a branch → `main` → `/(root)`**.
 GitHub serves over HTTPS, so `getUserMedia` works on phones too.
 
-> Note: the Whisper model + Transformers.js load from `cdn.jsdelivr.net`, which is
-> generally accessible inside mainland China. If you later find it blocked on some
-> school networks, mirror those assets to the repo (or a domestic CDN) and point
-> `env`/`import` at them — no code change needed in the capture/scorer logic.
+> **Model hosting:** The Whisper ONNX weights (~41 MB, quantized) are
+> committed to this repo under `models/whisper-tiny.en/` and served by GitHub
+> Pages — **no Hugging Face, no VPN**. `local-engine.js` loads them from a
+> repo-relative URL, so it works on the GH-Pages subpath out of the box.
+> The only external dependency is the Transformers.js *library* (JS) from
+> jsDelivr, which is generally reachable in mainland China.
 
 ## Tuning the "margin of error"
 

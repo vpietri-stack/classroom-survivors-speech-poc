@@ -8,7 +8,10 @@
 (function (global) {
   'use strict';
 
-  const MODEL_ID = 'onnx-community/whisper-tiny.en';
+  // Self-hosted model, committed to THIS repo (no Hugging Face, GFW-safe).
+  // Files live under models/whisper-tiny.en/ and are served by GitHub Pages.
+  // Resolve relative to the current page so it works on any GH-Pages subpath.
+  const MODEL_URL = new URL('models/whisper-tiny.en/', location.href).href;
   let transcriber = null;     // cached pipeline
   let loading = null;          // in-flight promise
 
@@ -22,13 +25,14 @@
       log('Engine: importing @huggingface/transformers …');
       const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3');
 
-      // Keep all model files on jsDelivr (github-hosted, GFW-accessible).
+      // Load weights from THIS repo, not huggingface.co (blocked in China).
       env.allowLocalModels = false;
+      env.backends.onnx.wasm.proxy = false;
 
-      log('Engine: loading ' + MODEL_ID + ' (q8, wasm) — first load ~78 MB …');
-      const pipe = await pipeline('automatic-speech-recognition', MODEL_ID, {
+      log('Engine: loading self-hosted model from ' + MODEL_URL + ' (quantized, wasm) — first load ~41 MB …');
+      const pipe = await pipeline('automatic-speech-recognition', MODEL_URL, {
         device: 'wasm',
-        dtype: 'q8',
+        dtype: { encoder_model: 'q8', decoder_model_merged: 'q8' },
         progress_callback: (p) => {
           if (onProgress && p.status === 'progress') {
             const pct = p.total ? Math.round((p.loaded / p.total) * 100) : 0;
@@ -65,7 +69,7 @@
   }
 
   global.LocalEngine = {
-    MODEL_ID,
+    MODEL_URL,
     load,
     transcribe,
     isLoaded: () => !!transcriber
