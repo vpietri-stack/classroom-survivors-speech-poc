@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Classroom Survivors — Speech PoC (Whisper-tiny.en, in-browser)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+        .hidden { display: none; }
+        #status { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 13px; }
+        .word-card { transition: all .15s ease; }
+        .correct { outline: 3px solid #22c55e; }
+        .wrong   { outline: 3px solid #ef4444; }
+        .pending { outline: 3px solid #e5e7eb; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+<div class="max-w-2xl mx-auto p-4">
+
+    <h1 class="text-2xl font-bold mb-1">🎤 Classroom Survivors — Speech PoC</h1>
+    <p class="text-slate-500 text-sm mb-4">
+        Fully local speech recognition (Whisper <code>whisper-tiny.en</code> running in your browser via Transformers.js).
+        No server, no API key, no cost. Audio never leaves the device.
+    </p>
+
+    <!-- Browser capability check -->
+    <div id="env" class="mb-4 text-sm"></div>
+
+    <!-- Model / engine status -->
+    <div class="flex items-center gap-3 mb-4">
+        <button id="loadBtn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-semibold disabled:opacity-50">
+            Load model (~78 MB, cached after first time)
+        </button>
+        <span id="modelStatus" class="text-sm text-slate-500">Not loaded</span>
+    </div>
+
+    <!-- Level selector (the "margin of error") -->
+    <div class="mb-4">
+        <label class="block text-sm font-semibold mb-1">Student level (controls pass tolerance)</label>
+        <select id="level" class="border rounded-lg px-3 py-2 w-full">
+            <option value="1">Level 1 — beginners (very lenient)</option>
+            <option value="2">Level 2 — elementary</option>
+            <option value="3" selected>Level 3 — intermediate</option>
+            <option value="4">Level 4 — upper-intermediate</option>
+            <option value="5">Level 5 — advanced (near-perfect only)</option>
+        </select>
+    </div>
+
+    <!-- Word / sentence list -->
+    <div id="exercises" class="grid grid-cols-1 gap-2 mb-6"></div>
+
+    <!-- Hidden recorder UI (one per active card) -->
+    <div id="recorderTpl" class="hidden">
+        <button class="recBtn bg-red-500 text-white rounded-lg w-10 h-10 text-lg">●</button>
+        <span class="result text-sm ml-2"></span>
+        <span class="judge ml-2 font-bold"></span>
+    </div>
+
+    <hr class="my-6">
+    <h2 class="text-lg font-bold mb-2">Diagnostics</h2>
+    <div class="mb-2 flex gap-2">
+        <button id="freeTestBtn" class="bg-slate-800 text-white px-3 py-1.5 rounded text-sm">Free-speak test (transcribe anything)</button>
+        <button id="clearLog" class="bg-slate-200 px-3 py-1.5 rounded text-sm">Clear log</button>
+    </div>
+    <div id="status" class="bg-slate-900 text-green-300 p-3 rounded-lg h-48 overflow-auto"></div>
+
+    <p class="text-xs text-slate-400 mt-6">
+        PoC only. To add real pronunciation scoring later, swap the engine for a server relay (e.g. Xunfei) — the Scorer module is unchanged.
+    </p>
+</div>
+
+    <!-- Order matters: libs first, then our modules -->
+    <script src="recorder.js"></script>
+    <script src="scorer.js"></script>
+    <script src="local-engine.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
