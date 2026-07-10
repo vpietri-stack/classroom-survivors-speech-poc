@@ -57,14 +57,76 @@
   }
 
   /**
-   * @param {Blob} wavBlob  16-bit PCM WAV
+   * @param {Blob|Float32Array} input  16-bit PCM WAV Blob, or raw Float32Array samples
    * @returns {Promise<{text:string, timeSec:number}>}
    */
-  async function transcribe(wavBlob) {
+  const TARGET_SR = 16000;   // Whisper tiny.en expects 16 kHz
+
+  // --- WAV (Blob) → Float32Array PCM in [-1,1], with the file's TRUE sample rate ---
+  async function decodeWav(blob) {
+    const buf = await blob.arrayBuffer();
+    const dv = new DataView(buf);
+    if (dv.getUint32(0, true) !== 0x46464952) throw new Error('Not a WAV (RIFF) blob');
+    let offset = 12, sampleRate = TARGET_SR, numCh = 1, bits = 16, fmt = 1, dataOff = -1, dataLen = 0;
+    while (offset + 8 <= buf.byteLength) {
+      const id = dv.getUint32(offset, true);
+      const size = dv.getUint32(offset + 4, true);
+      if (id === 0x20746d66) {            // 'fmt '
+        fmt = dv.getUint16(offset + 8, true);
+        numCh = dv.getUint16(offset + 10, true);
+        sampleRate = dv.getUint32(offset + 12, true);
+        bits = dv.getUint16(offset + 22, true);
+      } else if (id === 0x61746164) {     // 'data'
+        dataOff = offset + 8; dataLen = size; break;
+      }
+      offset += 8 + size + (size & 1);
+    }
+    if (dataOff < 0) throw new Error('WAV: missing data chunk');
+    const frames = Math.floor(dataLen / (bits / 8) / numCh);
+    const data = new Float32Array(frames);
+    let p = dataOff;
+    if (fmt === 3) {                       // IEEE float
+      const fa = new Float32Array(buf, dataOff, frames * numCh);
+      for (let i = 0; i < frames; i++) { let s = 0; for (let c = 0; c < numCh; c++) s += fa[i * numCh + c]; data[i] = s / numCh; }
+    } else if (bits === 16) {
+      for (let i = 0; i < frames; i++) { let s = 0; for (let c = 0; c < numCh; c++) { s += dv.getInt16(p, true); p += 2; } data[i] = s / numCh / 32768; }
+    } else if (bits === 8) {
+      for (let i = 0; i < frames; i++) { let s = 0; for (let c = 0; c < numCh; c++) { s += dv.getUint8(p) - 128; p++; } data[i] = s / numCh / 128; }
+    } else {
+      throw new Error('WAV: unsupported bit depth ' + bits);
+    }
+    return { data, sampleRate };
+  }
+
+  // --- linear-interpolation resample (good enough for ASR) ---
+  function resample(audio, fromRate, toRate) {
+    if (fromRate === toRate) return audio;
+    const ratio = fromRate / toRate;
+    const out = new Float32Array(Math.max(1, Math.round(audio.length / ratio)));
+    for (let i = 0; i < out.length; i++) {
+      const idx = i * ratio, i0 = Math.floor(idx), i1 = Math.min(i0 + 1, audio.length - 1), f = idx - i0;
+      out[i] = audio[i0] * (1 - f) + audio[i1] * f;
+    }
+    return out;
+  }
+
+  async function transcribe(input) {
     if (!transcriber) await load();
+    let audio, sampleRate;
+    if (input instanceof Blob) {
+      const { data, sampleRate: sr } = await decodeWav(input);
+      audio = data; sampleRate = sr;
+    } else if (input instanceof Float32Array) {
+      audio = input; sampleRate = TARGET_SR;
+    } else {
+      throw new Error('transcribe: expected a WAV Blob or Float32Array');
+    }
+    if (sampleRate !== TARGET_SR) audio = resample(audio, sampleRate, TARGET_SR);
+    if (!audio.length) return { text: '(silence / no audio captured)', timeSec: 0 };
+
     const t0 = performance.now();
     log('Transcribing audio (wasm) …');
-    const out = await transcriber(wavBlob, {
+    const out = await transcriber(audio, {
       chunk_length_s: 30,
       stride_length_s: 5,
       language: 'english',

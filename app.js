@@ -124,10 +124,15 @@
       log('Free-speak: recording…');
       await recorder.start();
       setTimeout(async () => {
-        const wav = await recorder.stop();
-        const { text, timeSec } = await LocalEngine.transcribe(wav);
-        log(`FREE-SPEAK result (${timeSec}s): "${text}"`);
-        busy = false;
+        try {
+          const wav = await recorder.stop();
+          const { text, timeSec } = await LocalEngine.transcribe(wav);
+          log(`FREE-SPEAK result (${timeSec}s): "${text}"`);
+        } catch (e) {
+          log('FREE-SPEAK ERROR: ' + (e && e.message ? e.message : e));
+        } finally {
+          busy = false;
+        }
       }, 4000);
     } catch (e) {
       log('ERROR: ' + (e && e.message ? e.message : e));

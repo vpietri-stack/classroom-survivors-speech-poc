@@ -31,14 +31,23 @@
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          sampleRate: SAMPLE_RATE,
           echoCancellation: true,
           noiseSuppression: true
+          // NOTE: do NOT set sampleRate here — browsers ignore/round it and the
+          // context sample rate may differ. We capture whatever we get and the
+          // engine resamples to 16 kHz; the WAV header records the TRUE rate.
         }
       });
 
-      this.audioCtx = new (global.AudioContext || global.webkitAudioContext)();
-      // Some browsers ignore the sampleRate hint; resample below if needed.
+      // Prefer an explicit 16 kHz context (best for ASR); fall back to default.
+      const Ctx = global.AudioContext || global.webkitAudioContext;
+      try {
+        this.audioCtx = new Ctx({ sampleRate: SAMPLE_RATE });
+      } catch (_) {
+        this.audioCtx = new Ctx();
+      }
+      this._actualRate = this.audioCtx.sampleRate;   // may be 44100/48000
+
       const src = this.audioCtx.createMediaStreamSource(this.stream);
       this.source = src;
 
@@ -65,8 +74,9 @@
       if (this.stream) this.stream.getTracks().forEach(t => t.stop());
 
       const pcm = mergeChunks(this._chunks);
-      const wav = encodeWav(pcm, SAMPLE_RATE);
-      return wav; // Blob, 16-bit PCM WAV
+      const rate = this._actualRate || SAMPLE_RATE;
+      const wav = encodeWav(pcm, rate);
+      return wav; // Blob, rate Hz / 16-bit PCM WAV
     }
   }
 
