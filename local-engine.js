@@ -128,9 +128,8 @@
     log('Transcribing audio (wasm) …');
     const out = await transcriber(audio, {
       chunk_length_s: 30,
-      stride_length_s: 5,
-      language: 'english',
-      task: 'transcribe'
+      stride_length_s: 5
+      // tiny.en is English-only: do NOT pass language/task (model rejects them).
     });
     const timeSec = ((performance.now() - t0) / 1000).toFixed(1);
     const text = (out && out.text ? out.text : '').trim();
