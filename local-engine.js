@@ -8,36 +8,76 @@
 (function (global) {
   'use strict';
 
-  // Everything self-hosted in THIS repo (no Hugging Face, no jsDelivr — GFW-safe).
-  // Transformers.js treats the pipeline first arg as a HF repo *id* and always
-  // builds an https://huggingface.co/<id>/... URL from it — it does NOT detect
-  // full URLs. So we pass a plain id and point localModelPath at our directory.
-  const MODEL_ID    = 'whisper-tiny.en';                 // repo-style id, not a URL
-  const MODEL_DIR    = new URL('models/', location.href).href;   // …/models/  (parent of the model folder)
+  // ---- Model-weight hosting: probe China-reachable GitHub proxies, then same-origin.
+  // Constraint map (all verified empirically):
+  //   • Gitee Pages は discontinued.
+  //   • hf-mirror redirects big files back to the blocked huggingface.co.
+  //   • jsDelivr caps /gh/ files at 20 MB → 403 on our ~30 MB decoder.
+  //   • raw.githubusercontent proxies (gh-proxy / ghproxy) serve the FULL 30 MB file
+  //     with CORS:* and no size cap — great for weights, which are FETCHED.
+  // MIME caveat: those proxies serve .js/.mjs as text/plain, which the browser
+  // REFUSES to `import()`. So the ESM lib + ORT wasm glue (which ARE imported) stay
+  // same-origin (GitHub Pages, correct MIME, already confirmed working in WeChat).
+  // Only the model weights — the 41 MB bottleneck, fetched not imported — get proxied.
+  const MODEL_ID = 'whisper-tiny.en';
+  const RAW       = 'raw.githubusercontent.com/vpietri-stack/classroom-survivors-speech-poc/master/';
+  const MODEL_SOURCES = [
+    { name: 'gh-proxy',    base: `https://gh-proxy.com/https://${RAW}` },   // CN GitHub proxy
+    { name: 'ghproxy.net', base: `https://ghproxy.net/https://${RAW}` },    // CN GitHub proxy
+    { name: 'same-origin', base: new URL('./', location.href).href },       // GitHub Pages fallback
+  ];
+
+  // MIME-sensitive assets always same-origin (imported, need real JS MIME).
   const LIB_URL   = new URL('lib/transformers.min.js?v=4', location.href).href;
-  const WASM_PATH   = new URL('lib/wasm/', location.href).href;  // trailing slash required
+  const WASM_PATH = new URL('lib/wasm/', location.href).href;
+
   let transcriber = null;     // cached pipeline
   let loading = null;          // in-flight promise
+  let chosen = null;           // winning weight source {name, base} after probe
 
   function log(msg) { if (global.__speechLog) global.__speechLog(msg); }
+
+  // Probe weight sources in order; first whose config.json answers within timeout wins.
+  async function pickSource() {
+    if (chosen) return chosen;
+    for (const src of MODEL_SOURCES) {
+      const url = `${src.base}models/${MODEL_ID}/config.json`;
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 6000);
+        const r = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+        clearTimeout(timer);
+        if (r.ok) { chosen = src; log(`Engine: model host → ${src.name}`); return src; }
+        log(`Engine: ${src.name} returned ${r.status}, trying next…`);
+      } catch (_) {
+        log(`Engine: ${src.name} unreachable, trying next…`);
+      }
+    }
+    chosen = MODEL_SOURCES[MODEL_SOURCES.length - 1];
+    log('Engine: all proxies failed probe; using ' + chosen.name);
+    return chosen;
+  }
 
   async function load(onProgress) {
     if (transcriber) return transcriber;
     if (loading) return loading;
 
     loading = (async () => {
-      log('Engine: importing self-hosted transformers.js …');
+      const src = await pickSource();
+      const MODEL_DIR = src.base + 'models/';       // …/models/  (parent of the model folder)
+
+      log('Engine: importing transformers.js (same-origin) …');
       const { pipeline, env } = await import(LIB_URL);
 
-      // Serve weights ONLY from THIS repo. localModelPath is joined with MODEL_ID
-      // to form …/models/whisper-tiny.en/<file>, so the HF host is never contacted.
+      // Weights from the chosen (fast, CN-reachable) mirror; lib+wasm same-origin.
+      // allowRemoteModels stays OFF so the blocked huggingface.co is NEVER contacted.
       env.allowLocalModels = true;
-      env.allowRemoteModels = false;     // hard block any huggingface.co fallback
+      env.allowRemoteModels = false;
       env.localModelPath = MODEL_DIR;
       env.backends.onnx.wasm.proxy = false;
       env.backends.onnx.wasm.wasmPaths = WASM_PATH;
 
-      log('Engine: loading self-hosted model ' + MODEL_ID + ' from ' + MODEL_DIR + ' (quantized, wasm) — first load ~41 MB …');
+      log('Engine: loading ' + MODEL_ID + ' from ' + src.name + ' (quantized, wasm) — first load ~41 MB …');
       const pipe = await pipeline('automatic-speech-recognition', MODEL_ID, {
         device: 'wasm',
         dtype: { encoder_model: 'q8', decoder_model_merged: 'q8' },
@@ -139,11 +179,10 @@
 
   global.LocalEngine = {
     MODEL_ID,
-    MODEL_DIR,
-    LIB_URL,
-    WASM_PATH,
+    MODEL_SOURCES,
     load,
     transcribe,
-    isLoaded: () => !!transcriber
+    isLoaded: () => !!transcriber,
+    chosenSource: () => chosen
   };
 })(window);
