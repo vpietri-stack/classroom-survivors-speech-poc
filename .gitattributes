@@ -1,0 +1,6 @@
+# Keep binary model/library assets unmodified (no CRLF conversion).
+*.wasm binary
+*.onnx binary
+*.js text eol=lf
+*.json text eol=lf
+*.html text eol=lf

@@ -8,10 +8,10 @@
 (function (global) {
   'use strict';
 
-  // Self-hosted model, committed to THIS repo (no Hugging Face, GFW-safe).
-  // Files live under models/whisper-tiny.en/ and are served by GitHub Pages.
-  // Resolve relative to the current page so it works on any GH-Pages subpath.
+  // Everything self-hosted in THIS repo (no Hugging Face, no jsDelivr — GFW-safe).
   const MODEL_URL = new URL('models/whisper-tiny.en/', location.href).href;
+  const LIB_URL   = new URL('lib/transformers.min.js', location.href).href;
+  const WASM_PATH = new URL('lib/wasm/', location.href).href; // trailing slash required
   let transcriber = null;     // cached pipeline
   let loading = null;          // in-flight promise
 
@@ -22,12 +22,13 @@
     if (loading) return loading;
 
     loading = (async () => {
-      log('Engine: importing @huggingface/transformers …');
-      const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3');
+      log('Engine: importing self-hosted transformers.js …');
+      const { pipeline, env } = await import(LIB_URL);
 
-      // Load weights from THIS repo, not huggingface.co (blocked in China).
+      // Load weights + wasm runtime from THIS repo, not external CDNs.
       env.allowLocalModels = false;
       env.backends.onnx.wasm.proxy = false;
+      env.backends.onnx.wasm.wasmPaths = WASM_PATH;
 
       log('Engine: loading self-hosted model from ' + MODEL_URL + ' (quantized, wasm) — first load ~41 MB …');
       const pipe = await pipeline('automatic-speech-recognition', MODEL_URL, {
@@ -70,6 +71,8 @@
 
   global.LocalEngine = {
     MODEL_URL,
+    LIB_URL,
+    WASM_PATH,
     load,
     transcribe,
     isLoaded: () => !!transcriber

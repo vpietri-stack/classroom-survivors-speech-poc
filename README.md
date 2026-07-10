@@ -55,12 +55,16 @@ gh repo create classroom-survivors-speech-poc --public --source=. --push
 Enable Pages: **Repo → Settings → Pages → Source: Deploy from a branch → `main` → `/(root)`**.
 GitHub serves over HTTPS, so `getUserMedia` works on phones too.
 
-> **Model hosting:** The Whisper ONNX weights (~41 MB, quantized) are
-> committed to this repo under `models/whisper-tiny.en/` and served by GitHub
-> Pages — **no Hugging Face, no VPN**. `local-engine.js` loads them from a
-> repo-relative URL, so it works on the GH-Pages subpath out of the box.
-> The only external dependency is the Transformers.js *library* (JS) from
-> jsDelivr, which is generally reachable in mainland China.
+> **Fully self-hosted (no external CDN):** All assets live in this repo and are
+> served by GitHub Pages — the Whisper ONNX weights (~41 MB), the
+> Transformers.js library (`lib/transformers.min.js`), and the ONNX Runtime
+> WASM (`lib/wasm/`). `local-engine.js` imports the library and the model from
+> **repo-relative URLs**, and points `env.backends.onnx.wasm.wasmPaths` at the
+> self-hosted wasm. There are therefore **zero requests to Hugging Face or
+> jsDelivr** — the page works fully offline-from-GFW, no VPN needed.
+>
+> Total repo payload added: ~74 MB (weights 41 + lib 0.8 + wasm 23). Within
+> GitHub's 100 MB/file limit; Pages serves them fine.
 
 ## Tuning the "margin of error"
 
