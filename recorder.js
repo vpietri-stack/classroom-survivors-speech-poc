@@ -17,6 +17,7 @@
       this.recording = false;
       this._chunks = [];      // Float32Array chunks
       this._recorders = [];    // fallback MediaRecorder handles
+      this.level = 0;          // live mic level 0..1 (RMS), for UI feedback
     }
 
     static isSupported() {
@@ -57,6 +58,11 @@
         if (!this.recording) return;
         const ch = e.inputBuffer.getChannelData(0);
         this._chunks.push(new Float32Array(ch));
+        // live RMS level for UI feedback (0..1, lightly amplified for visible motion)
+        let sum = 0;
+        for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i];
+        const rms = Math.sqrt(sum / ch.length);
+        this.level = Math.min(1, rms * 4);
       };
       src.connect(processor);
       processor.connect(this.audioCtx.destination);
@@ -68,6 +74,7 @@
     async stop() {
       if (!this.recording) return null;
       this.recording = false;
+      this.level = 0;
 
       try { this.source.disconnect(); } catch (_) {}
       try { this.processor.disconnect(); } catch (_) {}

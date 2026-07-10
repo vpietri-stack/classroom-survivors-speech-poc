@@ -88,6 +88,33 @@
   let holding = false;          // a press is in progress
   let startPending = false;     // pointerdown fired but getUserMedia still resolving
 
+  // ---- recording overlay (freeze screen + live "listening" bubble) ---------
+  const overlay = document.getElementById('recOverlay');
+  const micEl = document.getElementById('recMic');
+  const bars = Array.from(document.querySelectorAll('#recBars span'));
+  let rafId = null;
+  function animateOverlay() {
+    const lvl = recorder.level || 0;                     // 0..1 live RMS
+    micEl.style.transform = `scale(${1 + lvl * 0.6})`;   // mic pulses with voice
+    for (let i = 0; i < bars.length; i++) {
+      // center bars react most; add jitter so it looks alive even at steady volume
+      const weight = 1 - Math.abs(i - (bars.length - 1) / 2) / bars.length;
+      const h = 6 + lvl * 28 * weight * (0.7 + Math.random() * 0.6);
+      bars[i].style.height = Math.min(34, h) + 'px';
+    }
+    rafId = requestAnimationFrame(animateOverlay);
+  }
+  function showOverlay() {
+    overlay.classList.add('show');
+    if (!rafId) rafId = requestAnimationFrame(animateOverlay);
+  }
+  function hideOverlay() {
+    overlay.classList.remove('show');
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    bars.forEach(b => b.style.height = '6px');
+    micEl.style.transform = 'scale(1)';
+  }
+
   async function onRecordStart(ex, btn, resultEl, judgeEl, card) {
     if (busy || holding || startPending) return;
     holding = true;
@@ -99,6 +126,7 @@
       await recorder.start();   // may take a moment (getUserMedia prompt)
     } catch (e) {
       holding = false; startPending = false;
+      hideOverlay();
       btn.classList.remove('bg-red-700'); btn.textContent = '●';
       resultEl.textContent = 'error';
       log('ERROR: ' + (e && e.message ? e.message : e));
@@ -106,9 +134,11 @@
     }
     startPending = false;
     if (!holding) {             // released during the async gap → discard
+      hideOverlay();
       await safeStop(btn, resultEl);
       return;
     }
+    showOverlay();             // mic is live → freeze screen + show listening bubble
   }
 
   async function safeStop(btn, resultEl) {
@@ -122,6 +152,7 @@
     if (!holding) return;                          // stray release (e.g. before start resolved handled in start)
     if (startPending) { holding = false; return; } // released before mic ready → handled in onRecordStart
     holding = false;
+    hideOverlay();             // release → unfreeze screen
     btn.classList.remove('bg-red-700'); btn.textContent = '●';
     resultEl.textContent = '…';
     busy = true;

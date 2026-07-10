@@ -13,9 +13,49 @@
         .correct { outline: 3px solid #22c55e; }
         .wrong   { outline: 3px solid #ef4444; }
         .pending { outline: 3px solid #e5e7eb; }
+
+        /* ---- WeChat-style recording overlay ---- */
+        #recOverlay {
+            position: fixed; inset: 0; z-index: 50;
+            display: none; align-items: center; justify-content: center;
+            background: rgba(0,0,0,.45);
+            -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+            touch-action: none; user-select: none;
+        }
+        #recOverlay.show { display: flex; }
+        .rec-bubble {
+            background: #2f2f2f; color: #fff;
+            border-radius: 20px; padding: 22px 28px 18px;
+            display: flex; flex-direction: column; align-items: center; gap: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,.4);
+            min-width: 180px;
+        }
+        .rec-mic {
+            font-size: 40px; line-height: 1;
+            transform: scale(1); transition: transform .06s ease-out;
+        }
+        .rec-bars { display: flex; align-items: flex-end; gap: 4px; height: 34px; }
+        .rec-bars span {
+            width: 5px; background: #9be89b; border-radius: 3px;
+            height: 6px; transition: height .08s ease-out;
+        }
+        .rec-hint { font-size: 13px; color: #d0d0d0; }
+        .rec-hint b { color: #fff; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen">
+
+<!-- WeChat-style recording overlay (freezes screen while holding to talk) -->
+<div id="recOverlay">
+  <div class="rec-bubble">
+    <div class="rec-mic" id="recMic">🎙️</div>
+    <div class="rec-bars" id="recBars">
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="rec-hint">Listening… <b>release to send</b></div>
+  </div>
+</div>
+
 <div class="max-w-2xl mx-auto p-4">
 
     <h1 class="text-2xl font-bold mb-1">🎤 Classroom Survivors — Speech PoC</h1>
@@ -74,10 +114,10 @@
     </p>
 </div>
 
-    <!-- Order matters: libs first, then our modules. ?v=7 forces a fresh fetch (busts WeChat/GitHub Pages cache). -->
-    <script src="recorder.js?v=7"></script>
-    <script src="scorer.js?v=7"></script>
-    <script src="local-engine.js?v=7"></script>
-    <script src="app.js?v=7"></script>
+    <!-- Order matters: libs first, then our modules. ?v=8 forces a fresh fetch (busts WeChat/GitHub Pages cache). -->
+    <script src="recorder.js?v=8"></script>
+    <script src="scorer.js?v=8"></script>
+    <script src="local-engine.js?v=8"></script>
+    <script src="app.js?v=8"></script>
 </body>
 </html>
