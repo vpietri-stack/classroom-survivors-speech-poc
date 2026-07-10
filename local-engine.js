@@ -10,7 +10,7 @@
 
   // Everything self-hosted in THIS repo (no Hugging Face, no jsDelivr — GFW-safe).
   const MODEL_URL = new URL('models/whisper-tiny.en/', location.href).href;
-  const LIB_URL   = new URL('lib/transformers.min.js', location.href).href;
+  const LIB_URL   = new URL('lib/transformers.min.js?v=3', location.href).href;
   const WASM_PATH = new URL('lib/wasm/', location.href).href; // trailing slash required
   let transcriber = null;     // cached pipeline
   let loading = null;          // in-flight promise
