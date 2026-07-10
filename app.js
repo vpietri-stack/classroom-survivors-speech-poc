@@ -60,7 +60,7 @@
       card.innerHTML = `
         <span class="text-xs uppercase tracking-wide text-slate-400 w-14">${ex.type}</span>
         <span class="text-lg font-semibold flex-1">${ex.text}</span>
-        <button class="recBtn bg-red-500 hover:bg-red-600 text-white rounded-lg w-11 h-11 text-lg shrink-0" data-i="${i}">●</button>
+        <button class="recBtn bg-red-500 hover:bg-red-600 active:bg-red-700 text-white rounded-lg w-11 h-11 text-lg shrink-0 touch-none select-none cursor-pointer" data-i="${i}">●</button>
         <span class="result text-sm text-slate-600 w-40 truncate"></span>
         <span class="judge text-sm font-bold w-10 text-center"></span>
       `;
@@ -68,47 +68,75 @@
       const btn = card.querySelector('.recBtn');
       const resultEl = card.querySelector('.result');
       const judgeEl = card.querySelector('.judge');
-      btn.addEventListener('click', () => onRecord(ex, btn, resultEl, judgeEl, card));
+      btn.addEventListener('pointerdown', (ev) => {
+        if (!LocalEngine.isLoaded()) { log('Model not loaded yet — click "Load model" first.'); return; }
+        ev.preventDefault();
+        try { btn.setPointerCapture(ev.pointerId); } catch (_) {}
+        onRecordStart(ex, btn, resultEl, judgeEl, card);
+      });
+      const end = (ev) => { ev.preventDefault(); onRecordEnd(ex, btn, resultEl, judgeEl, card); };
+      btn.addEventListener('pointerup', end);
+      btn.addEventListener('pointercancel', end);
+      // Safety: if the pointer somehow leaves the button while captured, end on leave too.
+      btn.addEventListener('lostpointercapture', () => onRecordEnd(ex, btn, resultEl, judgeEl, card));
     });
   }
 
-  // ---- record → transcribe → score ----------------------------------------
+  // ---- record (WeChat-style: hold to talk, release to send) ----------------
   const recorder = new Recorder();
   let busy = false;
+  let holding = false;          // a press is in progress
+  let startPending = false;     // pointerdown fired but getUserMedia still resolving
 
-  async function onRecord(ex, btn, resultEl, judgeEl, card) {
-    if (busy) return;
-    if (!LocalEngine.isLoaded()) {
-      log('Model not loaded yet — click "Load model" first.');
+  async function onRecordStart(ex, btn, resultEl, judgeEl, card) {
+    if (busy || holding || startPending) return;
+    holding = true;
+    startPending = true;
+    btn.classList.add('bg-red-700'); btn.textContent = '■';
+    resultEl.textContent = 'release to send…'; judgeEl.textContent = '';
+    card.classList.remove('correct', 'wrong');
+    try {
+      await recorder.start();   // may take a moment (getUserMedia prompt)
+    } catch (e) {
+      holding = false; startPending = false;
+      btn.classList.remove('bg-red-700'); btn.textContent = '●';
+      resultEl.textContent = 'error';
+      log('ERROR: ' + (e && e.message ? e.message : e));
       return;
     }
+    startPending = false;
+    if (!holding) {             // released during the async gap → discard
+      await safeStop(btn, resultEl);
+      return;
+    }
+  }
+
+  async function safeStop(btn, resultEl) {
+    let wav = null;
+    try { wav = await recorder.stop(); } catch (_) {}
+    return wav;
+  }
+
+  async function onRecordEnd(ex, btn, resultEl, judgeEl, card) {
+    if (busy) { holding = false; return; }       // a previous job still running; ignore
+    if (!holding) return;                          // stray release (e.g. before start resolved handled in start)
+    if (startPending) { holding = false; return; } // released before mic ready → handled in onRecordStart
+    holding = false;
+    btn.classList.remove('bg-red-700'); btn.textContent = '●';
+    resultEl.textContent = '…';
     busy = true;
     try {
-      if (btn.dataset.on === '1') {
-        // stop
-        btn.dataset.on = '0';
-        btn.classList.remove('bg-red-600'); btn.textContent = '●';
-        resultEl.textContent = '…';
-        const wav = await recorder.stop();
-        const { text } = await LocalEngine.transcribe(wav);
-        const level = parseInt(document.getElementById('level').value, 10);
-        const r = Scorer.score(ex.text, text, level);
-        resultEl.textContent = text || '(silence / unclear)';
-        judgeEl.textContent = r.pass ? '✅' : '❌';
-        card.classList.toggle('correct', r.pass);
-        card.classList.toggle('wrong', !r.pass);
-        log(`Score "${ex.text}" @ L${level}: pass=${r.pass} | ${r.details}`);
-      } else {
-        // start
-        btn.dataset.on = '1';
-        btn.classList.add('bg-red-600'); btn.textContent = '■';
-        resultEl.textContent = 'listening…'; judgeEl.textContent = '';
-        card.classList.remove('correct', 'wrong');
-        await recorder.start();
-      }
+      const wav = await safeStop(btn, resultEl);
+      const { text } = await LocalEngine.transcribe(wav);
+      const level = parseInt(document.getElementById('level').value, 10);
+      const r = Scorer.score(ex.text, text, level);
+      resultEl.textContent = text || '(silence / unclear)';
+      judgeEl.textContent = r.pass ? '✅' : '❌';
+      card.classList.toggle('correct', r.pass);
+      card.classList.toggle('wrong', !r.pass);
+      log(`Score "${ex.text}" @ L${level}: pass=${r.pass} | ${r.details}`);
     } catch (e) {
       log('ERROR: ' + (e && e.message ? e.message : e));
-      btn.dataset.on = '0'; btn.textContent = '●';
       resultEl.textContent = 'error';
     } finally {
       busy = false;
