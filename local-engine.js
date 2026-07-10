@@ -9,9 +9,13 @@
   'use strict';
 
   // Everything self-hosted in THIS repo (no Hugging Face, no jsDelivr — GFW-safe).
-  const MODEL_URL = new URL('models/whisper-tiny.en/', location.href).href;
-  const LIB_URL   = new URL('lib/transformers.min.js?v=3', location.href).href;
-  const WASM_PATH = new URL('lib/wasm/', location.href).href; // trailing slash required
+  // Transformers.js treats the pipeline first arg as a HF repo *id* and always
+  // builds an https://huggingface.co/<id>/... URL from it — it does NOT detect
+  // full URLs. So we pass a plain id and point localModelPath at our directory.
+  const MODEL_ID    = 'whisper-tiny.en';                 // repo-style id, not a URL
+  const MODEL_DIR    = new URL('models/', location.href).href;   // …/models/  (parent of the model folder)
+  const LIB_URL   = new URL('lib/transformers.min.js?v=4', location.href).href;
+  const WASM_PATH   = new URL('lib/wasm/', location.href).href;  // trailing slash required
   let transcriber = null;     // cached pipeline
   let loading = null;          // in-flight promise
 
@@ -25,13 +29,16 @@
       log('Engine: importing self-hosted transformers.js …');
       const { pipeline, env } = await import(LIB_URL);
 
-      // Load weights + wasm runtime from THIS repo, not external CDNs.
-      env.allowLocalModels = false;
+      // Serve weights ONLY from THIS repo. localModelPath is joined with MODEL_ID
+      // to form …/models/whisper-tiny.en/<file>, so the HF host is never contacted.
+      env.allowLocalModels = true;
+      env.allowRemoteModels = false;     // hard block any huggingface.co fallback
+      env.localModelPath = MODEL_DIR;
       env.backends.onnx.wasm.proxy = false;
       env.backends.onnx.wasm.wasmPaths = WASM_PATH;
 
-      log('Engine: loading self-hosted model from ' + MODEL_URL + ' (quantized, wasm) — first load ~41 MB …');
-      const pipe = await pipeline('automatic-speech-recognition', MODEL_URL, {
+      log('Engine: loading self-hosted model ' + MODEL_ID + ' from ' + MODEL_DIR + ' (quantized, wasm) — first load ~41 MB …');
+      const pipe = await pipeline('automatic-speech-recognition', MODEL_ID, {
         device: 'wasm',
         dtype: { encoder_model: 'q8', decoder_model_merged: 'q8' },
         progress_callback: (p) => {
@@ -70,7 +77,8 @@
   }
 
   global.LocalEngine = {
-    MODEL_URL,
+    MODEL_ID,
+    MODEL_DIR,
     LIB_URL,
     WASM_PATH,
     load,
