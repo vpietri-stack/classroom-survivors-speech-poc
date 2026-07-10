@@ -208,7 +208,9 @@
     loadBtn.disabled = true;
     try {
       await LocalEngine.load((pct, file) => {
-        modelStatus.textContent = `Loading… ${pct}%  ${file}`;
+        modelStatus.textContent = pct >= 100
+          ? 'Preparing model (compiling on device, ~30–60s)…'
+          : `Loading… ${pct}%  ${file}`;
       });
       modelStatus.textContent = 'Loaded ✅';
     } catch (e) {

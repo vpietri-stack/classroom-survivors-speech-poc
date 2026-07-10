@@ -89,6 +89,12 @@
         }
       });
       transcriber = pipe;
+      // After download (progress→100%), ORT compiles the graph into WASM on the CPU —
+      // this is the 30–60s "stuck at 100%" on mobile. Do a silent warm-up now so that
+      // cost (compile + first-run kernel JIT) is paid HERE, and the user's first real
+      // transcription is instant.
+      log('Engine: preparing model (compiling on device) …');
+      try { await pipe(new Float32Array(TARGET_SR)); } catch (_) { /* best-effort warm-up */ }
       log('Engine: ready ✅');
       return pipe;
     })();
